@@ -1,0 +1,41 @@
+name: Odoo 17 tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: odoo
+          POSTGRES_PASSWORD: odoo
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install module and run integration tests
+        run: |
+          docker run --rm --network host \
+            --volume "$GITHUB_WORKSPACE:/mnt/extra-addons/product_active_company:ro" \
+            --entrypoint /usr/bin/odoo \
+            odoo:17.0 \
+            --db_host=127.0.0.1 --db_port=5432 \
+            --db_user=odoo --db_password=odoo \
+            --database=product_active_company_test \
+            --init=product_active_company --without-demo=all \
+            --test-enable --test-tags=/product_active_company \
+            --stop-after-init --http-port=8079
