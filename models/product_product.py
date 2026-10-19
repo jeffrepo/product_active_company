@@ -43,6 +43,10 @@ class ProductProduct(models.Model):
                 # for its inherited fields.
                 vals["product_tmpl_id"] = template_id
                 vals.pop("company_id", None)
-            # For a new template, its create() applies the company selection
-            # rule. Keep the user's explicit choice for that delegated call.
+            else:
+                # Normalize before delegated creation: the related field's
+                # inverse must not write the original value back afterwards.
+                vals["company_id"] = self.env["product.template"]._get_product_creation_company_id(
+                    vals.get("company_id")
+                )
         return super().create(vals_list)

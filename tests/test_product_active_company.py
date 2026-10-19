@@ -135,6 +135,7 @@ class TestProductActiveCompany(TransactionCase):
                     model = self._model(model_name, selected)
                     with Form(model, view=view) as form:
                         self.assertEqual(form.company_id, self.company_b)
+                        self.assertEqual(form.can_select_product_company, len(selected) > 1)
                         form.name = "Created in product form"
                         if len(selected) == 1:
                             with self.assertRaisesRegex(AssertionError, "readonly"):

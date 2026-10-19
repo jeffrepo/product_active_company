@@ -24,15 +24,21 @@ class ProductTemplate(models.Model):
             defaults["company_id"] = self.env.company.id
         return defaults
 
+    @api.model
+    def _get_product_creation_company_id(self, company_id=False):
+        enabled_companies = self.env.companies
+        if len(enabled_companies) <= 1 or not company_id:
+            return self.env.company.id
+        if company_id not in enabled_companies.ids:
+            raise ValidationError(_(
+                "Selecciona una de las empresas habilitadas en el selector de empresas."
+            ))
+        return company_id
+
     @api.model_create_multi
     def create(self, vals_list):
-        enabled_companies = self.env.companies
-        vals_list = [dict(vals) for vals in vals_list]
-        for vals in vals_list:
-            if len(enabled_companies) <= 1 or not vals.get("company_id"):
-                vals["company_id"] = self.env.company.id
-            elif vals["company_id"] not in enabled_companies.ids:
-                raise ValidationError(_(
-                    "Selecciona una de las empresas habilitadas en el selector de empresas."
-                ))
+        vals_list = [
+            dict(vals, company_id=self._get_product_creation_company_id(vals.get("company_id")))
+            for vals in vals_list
+        ]
         return super().create(vals_list)
