@@ -9,6 +9,7 @@ class ProductTemplate(models.Model):
     company_id = fields.Many2one(copy=False)
     can_select_product_company = fields.Boolean(
         compute="_compute_can_select_product_company",
+        default=lambda self: len(self.env.companies) > 1,
     )
 
     @api.depends_context("allowed_company_ids", "uid")

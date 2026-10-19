@@ -7,6 +7,7 @@ class ProductProduct(models.Model):
     # Compute on the variant itself, including before a template exists.
     can_select_product_company = fields.Boolean(
         compute="_compute_can_select_product_company",
+        default=lambda self: len(self.env.companies) > 1,
     )
 
     @api.depends_context("allowed_company_ids", "uid")
