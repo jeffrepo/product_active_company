@@ -1,8 +1,19 @@
-from odoo import api, models
+from odoo import api, fields, models
 
 
 class ProductProduct(models.Model):
     _inherit = "product.product"
+
+    # Compute on the variant itself, including before a template exists.
+    can_select_product_company = fields.Boolean(
+        compute="_compute_can_select_product_company",
+    )
+
+    @api.depends_context("allowed_company_ids", "uid")
+    def _compute_can_select_product_company(self):
+        can_select = len(self.env.companies) > 1
+        for product in self:
+            product.can_select_product_company = can_select
 
     @api.model
     def default_get(self, fields_list):
@@ -32,6 +43,6 @@ class ProductProduct(models.Model):
                 # for its inherited fields.
                 vals["product_tmpl_id"] = template_id
                 vals.pop("company_id", None)
-            else:
-                vals["company_id"] = self.env.company.id
+            # For a new template, its create() applies the company selection
+            # rule. Keep the user's explicit choice for that delegated call.
         return super().create(vals_list)

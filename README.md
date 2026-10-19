@@ -1,32 +1,36 @@
 # Productos por empresa activa
 
-Módulo genérico para **Odoo 17**. Asigna cada producto nuevo a la empresa activa
-del usuario en el selector de empresas, independientemente de cuántas empresas
-tenga asignadas o habilitadas. Nombre técnico: `product_active_company`.
+Módulo genérico para **Odoo 17**. Propone la empresa activa al crear un producto
+y permite elegir otra si el usuario tiene dos o más empresas seleccionadas en
+el selector de empresas. Nombre técnico: `product_active_company`.
 
 ## Comportamiento
 
-- Usa `env.company`, la empresa activa de la operación. Por ejemplo, si el usuario
-  tiene las empresas A, B y C y está posicionado en B, el producto pertenece a B,
-  aunque A sea la empresa principal configurada en su usuario.
-- Muestra la empresa activa al abrir el formulario de un producto nuevo. El campo
-  es de solo lectura durante la creación.
-- Aplica la asignación al guardar, incluso si el formulario, una importación o una
-  llamada a la API envía otra empresa o deja el campo vacío.
+- Usa `env.company` como valor inicial. Por ejemplo, si el usuario está
+  posicionado en B, el formulario propone B aunque A sea su empresa principal.
+- Con **una sola empresa seleccionada**, el campo es de solo lectura durante la
+  creación y el producto se asigna a esa empresa.
+- Con **dos o más empresas seleccionadas**, permite elegir cualquiera de ellas y
+  respeta la elección al guardar. Las empresas asignadas al usuario pero no
+  seleccionadas no aparecen entre las opciones.
+- Tener varias empresas asignadas y solo una seleccionada mantiene el bloqueo.
+- Si no se indica una empresa o se deja vacía, asigna la activa. En importaciones
+  y llamadas a la API aplica la misma regla: con varias empresas seleccionadas,
+  conserva una empresa explícita habilitada y rechaza una que no esté habilitada.
 - Cubre plantillas (`product.template`), productos (`product.product`), creación
   rápida, duplicación y creación por lotes.
 - Una variante agregada a una plantilla existente conserva la empresa de esa
   plantilla, incluidos los productos compartidos. No cambia la empresa del
   producto existente por agregarle una variante.
 - No modifica productos existentes al instalarse ni al editar otros campos.
-  La edición posterior de la empresa conserva el comportamiento estándar de Odoo.
+  La edición posterior de la empresa sigue permitida entre las seleccionadas,
+  sujeta a las restricciones estándar de Odoo.
 - Respeta los permisos y reglas multiempresa de Odoo. No utiliza `sudo()`.
 
-La regla es obligatoria para **productos nuevos**: para crearlos en otra empresa,
-hay que cambiar primero la empresa activa. En integraciones y procesos internos,
-se debe ejecutar la operación con el contexto de empresa correspondiente
+Los duplicados también proponen la empresa activa. En integraciones y procesos
+internos, se debe ejecutar la operación con el contexto de empresa correspondiente
 (`allowed_company_ids` o `with_company()`). Sin un contexto explícito, Odoo usa
-la empresa principal del usuario.
+la empresa principal como activa y las empresas asignadas como habilitadas.
 
 ## Instalación
 
@@ -45,11 +49,18 @@ la empresa principal del usuario.
 Solo depende del módulo estándar `product`; no requiere módulos de JCDecaux.
 No tiene parámetros de configuración ni ejecuta una migración de productos.
 
+Si ya estaba instalado, descargar los cambios, reiniciar Odoo y **actualizar**
+el módulo desde Aplicaciones (o ejecutar `odoo-bin -d BASE -u product_active_company
+--stop-after-init`). La versión `17.0.1.1.0` incorpora la selección de empresa.
+
 ## Verificación
 
-Con un usuario con acceso a dos o tres empresas, seleccionar una empresa activa
-distinta de la principal y crear un producto. Su empresa debe coincidir con la
-activa. Cambiar la empresa activa y repetir la creación.
+Con un usuario con acceso a A, B y C:
+
+1. Seleccionar solo B: al crear un producto, B aparece bloqueada.
+2. Seleccionar A y B, con B activa: el formulario propone B y permite elegir A.
+3. Guardar el producto eligiendo A: debe conservar A.
+4. C no debe aparecer como opción mientras no esté seleccionada.
 
 Las pruebas de integración cubren usuarios con una, dos y tres empresas,
 formularios, valores explícitos/contextuales, importación, duplicación, creación

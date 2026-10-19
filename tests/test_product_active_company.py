@@ -1,6 +1,9 @@
+from lxml import etree
+
 from odoo import Command
-from odoo.exceptions import AccessError
+from odoo.exceptions import AccessError, ValidationError
 from odoo.tests import Form, TransactionCase, new_test_user, tagged
+from odoo.tools.safe_eval import safe_eval
 
 
 @tagged("post_install", "-at_install")
@@ -46,6 +49,7 @@ class TestProductActiveCompany(TransactionCase):
                     )
                     product = model.create({"name": "Assigned companies %s" % count})
                     self.assertEqual(product.company_id, active)
+                    self.assertEqual(product.can_select_product_company, count > 1)
 
     def test_switch_active_company_with_all_companies_enabled(self):
         for active in (self.company_b, self.company_c, self.company_a):
@@ -65,7 +69,7 @@ class TestProductActiveCompany(TransactionCase):
                 )
                 self.assertNotIn("company_id", model.default_get(["name"]))
 
-    def test_batch_create_overrides_explicit_companies(self):
+    def test_batch_create_preserves_enabled_company_choice(self):
         for model_name in ("product.template", "product.product"):
             values = [
                 {"name": "Missing company"},
@@ -77,19 +81,78 @@ class TestProductActiveCompany(TransactionCase):
                 default_company_id=self.company_c.id
             ).create(values)
             self.assertEqual(len(products), 3)
-            self.assertEqual(products.mapped("company_id"), self.company_b)
+            self.assertEqual(products[0].company_id, self.company_b)
+            self.assertEqual(products[1].company_id, self.company_b)
+            self.assertEqual(products[2].company_id, self.company_a)
             self.assertEqual(values, original_values)
+
+    def test_single_selected_company_overrides_explicit_company(self):
+        # The user has three assigned companies, but only B is selected.
+        for model_name in ("product.template", "product.product"):
+            model = self._model(model_name, [self.company_b.id])
+            products = model.create([
+                {"name": "No company"},
+                {"name": "Empty company", "company_id": False},
+                {"name": "Different company", "company_id": self.company_a.id},
+            ])
+            self.assertEqual(products.mapped("company_id"), self.company_b)
+
+    def test_reject_company_not_selected_or_not_assigned(self):
+        unauthorized = self.env["res.company"].create({"name": "Not assigned"})
+        for model_name in ("product.template", "product.product"):
+            model = self._model(model_name, [self.company_b.id, self.company_a.id])
+            for company in (self.company_c, unauthorized):
+                with self.subTest(model=model_name, company=company.name):
+                    with self.assertRaises(ValidationError), self.cr.savepoint():
+                        model.create({"name": "Invalid choice", "company_id": company.id})
+
+    def test_selection_flag_updates_with_enabled_companies(self):
+        for model_name in ("product.template", "product.product"):
+            product = self._model(model_name).create({"name": "Context switch"})
+            for selected in (
+                [self.company_b.id],
+                [self.company_b.id, self.company_a.id],
+                [self.company_b.id],
+            ):
+                self.assertEqual(
+                    product.with_context(
+                        allowed_company_ids=selected
+                    ).can_select_product_company,
+                    len(selected) > 1,
+                )
 
     def test_product_forms(self):
         for model_name, view in (
             ("product.template", "product.product_template_only_form_view"),
             ("product.product", "product.product_normal_form_view"),
         ):
-            with self.subTest(model=model_name):
-                with Form(self._model(model_name), view=view) as form:
-                    self.assertEqual(form.company_id, self.company_b)
-                    form.name = "Created in product form"
-                self.assertEqual(form.record.company_id, self.company_b)
+            for selected, chosen in (
+                ([self.company_b.id], self.company_b),
+                ([self.company_b.id, self.company_a.id], self.company_a),
+                ([self.company_b.id, self.company_a.id, self.company_c.id], self.company_c),
+            ):
+                with self.subTest(model=model_name, selected=selected):
+                    model = self._model(model_name, selected)
+                    with Form(model, view=view) as form:
+                        self.assertEqual(form.company_id, self.company_b)
+                        form.name = "Created in product form"
+                        if len(selected) == 1:
+                            with self.assertRaisesRegex(AssertionError, "readonly"):
+                                form.company_id = self.company_a
+                        else:
+                            form.company_id = chosen
+                    self.assertEqual(form.record.company_id, chosen)
+
+                    arch = etree.fromstring(model.get_view(
+                        view_id=self.env.ref(view).id, view_type="form"
+                    )["arch"])
+                    company_fields = arch.xpath("//field[@name='company_id'][@domain]")
+                    self.assertTrue(company_fields)
+                    domain = safe_eval(
+                        company_fields[0].get("domain"), {"context": model.env.context}
+                    )
+                    available = model.env["res.company"].search(domain)
+                    self.assertEqual(set(available.ids), set(selected))
 
     def test_quick_create(self):
         for model_name in ("product.template", "product.product"):
@@ -97,15 +160,19 @@ class TestProductActiveCompany(TransactionCase):
             product_id, _name = model.name_create("Quick creation")
             self.assertEqual(model.browse(product_id).company_id, self.company_b)
 
-    def test_import_uses_active_company(self):
+    def test_import_respects_selected_company_rule(self):
         for model_name in ("product.template", "product.product"):
-            model = self._model(model_name)
-            result = model.load(
-                ["name", "company_id/.id"],
-                [["Imported product", str(self.company_a.id)]],
-            )
-            self.assertTrue(result["ids"], result["messages"])
-            self.assertEqual(model.browse(result["ids"]).company_id, self.company_b)
+            for selected, expected in (
+                ([self.company_b.id], self.company_b),
+                ([self.company_b.id, self.company_a.id], self.company_a),
+            ):
+                model = self._model(model_name, selected)
+                result = model.load(
+                    ["name", "company_id/.id"],
+                    [["Imported product", str(self.company_a.id)]],
+                )
+                self.assertTrue(result["ids"], result["messages"])
+                self.assertEqual(model.browse(result["ids"]).company_id, expected)
 
     def test_copy_uses_active_company(self):
         for model_name in ("product.template", "product.product"):
@@ -118,6 +185,13 @@ class TestProductActiveCompany(TransactionCase):
                 self.assertTrue(duplicate)
                 self.assertEqual(original.company_id, self.company_a)
                 self.assertEqual(duplicate.company_id, self.company_b)
+
+    def test_copy_respects_explicit_enabled_company(self):
+        for model_name in ("product.template", "product.product"):
+            model = self._model(model_name)
+            original = model.create({"name": "Original"})
+            duplicate = model.browse(original.id).copy({"company_id": self.company_c.id})
+            self.assertEqual(duplicate.company_id, self.company_c)
 
     def test_existing_template_keeps_company_when_adding_variant(self):
         for shared in (False, True):
@@ -153,7 +227,7 @@ class TestProductActiveCompany(TransactionCase):
             {"name": "New product", "company_id": self.company_a.id},
         ])
         self.assertEqual(products[0].company_id, self.company_a)
-        self.assertEqual(products[1].company_id, self.company_b)
+        self.assertEqual(products[1].company_id, self.company_a)
 
     def test_edit_existing_product_keeps_company(self):
         original = self._model().with_company(self.company_a).create({"name": "Original"})

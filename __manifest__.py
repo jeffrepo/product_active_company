@@ -1,7 +1,7 @@
 {
     "name": "Productos por empresa activa",
-    "summary": "Asigna los productos nuevos a la empresa activa del usuario",
-    "version": "17.0.1.0.0",
+    "summary": "Empresa activa por defecto y selección entre empresas habilitadas",
+    "version": "17.0.1.1.0",
     "category": "Product",
     "author": "Jefferson Silva",
     "website": "https://github.com/jeffrepo/product_active_company",
