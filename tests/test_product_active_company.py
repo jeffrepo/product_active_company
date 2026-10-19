@@ -109,11 +109,15 @@ class TestProductActiveCompany(TransactionCase):
 
     def test_copy_uses_active_company(self):
         for model_name in ("product.template", "product.product"):
-            model = self._model(model_name)
-            original = model.with_company(self.company_a).create({"name": "Original"})
-            duplicate = original.with_company(self.company_b).copy()
-            self.assertEqual(original.company_id, self.company_a)
-            self.assertEqual(duplicate.company_id, self.company_b)
+            with self.subTest(model=model_name):
+                model = self._model(model_name)
+                original = model.with_company(self.company_a).create({"name": "Original"})
+                # Browse in the next operation's environment: Odoo's variant
+                # create() returns a record carrying create_product_product=False.
+                duplicate = model.browse(original.id).copy()
+                self.assertTrue(duplicate)
+                self.assertEqual(original.company_id, self.company_a)
+                self.assertEqual(duplicate.company_id, self.company_b)
 
     def test_existing_template_keeps_company_when_adding_variant(self):
         for shared in (False, True):
